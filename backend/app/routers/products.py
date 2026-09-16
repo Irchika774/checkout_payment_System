@@ -1,0 +1,47 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
+from typing import List, Optional
+from app.database import get_db
+from app.models import EcommerceProduct
+from app.schemas import ProductResponse
+
+router = APIRouter(prefix="/api/products", tags=["Products"])
+
+@router.get("/", response_model=List[ProductResponse])
+async def list_products(
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    in_stock: Optional[bool] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(EcommerceProduct)
+
+    if search:
+        query = query.where(
+            or_(
+                EcommerceProduct.name.ilike(f"%{search}%"),
+                EcommerceProduct.description.ilike(f"%{search}%")
+            )
+        )
+    if category and category != "All":
+        query = query.where(EcommerceProduct.category == category)
+    if min_price is not None:
+        query = query.where(EcommerceProduct.price >= min_price)
+    if max_price is not None:
+        query = query.where(EcommerceProduct.price <= max_price)
+    if in_stock:
+        query = query.where(EcommerceProduct.available_stock > 0)
+
+    result = await db.execute(query)
+    return result.scalars().all()
+
+@router.get("/{product_id}", response_model=ProductResponse)
+async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(EcommerceProduct).where(EcommerceProduct.id == product_id))
+    product = result.scalars().first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return product
