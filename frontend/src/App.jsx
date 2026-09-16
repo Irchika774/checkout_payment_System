@@ -9,6 +9,7 @@ import CartDrawer from './components/CartDrawer';
 import PaymentGatewayModal from './components/PaymentGatewayModal';
 import OrderHistory from './components/OrderHistory';
 
+// Retrieve backend API base URL from Vite environment variables
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export default function App() {
@@ -31,14 +32,17 @@ export default function App() {
   const [message, setMessage] = useState(null);
   const [activeTab, setActiveTab] = useState('shop');
 
+  // Fetch products when search filters change
   useEffect(() => {
     fetchProducts();
   }, [search, category, minPrice, maxPrice, inStockOnly]);
 
+  // Fetch orders on initial load
   useEffect(() => {
     fetchOrders();
   }, []);
 
+  // Stock reservation countdown timer (5 minutes = 300s)
   useEffect(() => {
     let interval = null;
     if (activeOrder && activeOrder.status === 'RESERVED' && timer > 0) {
@@ -55,6 +59,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [activeOrder, timer]);
 
+  // Fetch Products API Call
   const fetchProducts = async () => {
     try {
       const params = new URLSearchParams();
@@ -71,6 +76,7 @@ export default function App() {
     }
   };
 
+  // Fetch Orders API Call
   const fetchOrders = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/orders/`);
@@ -80,6 +86,7 @@ export default function App() {
     }
   };
 
+  // Cart Management Functions
   const addToCart = (product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product_id === product.id);
@@ -116,54 +123,58 @@ export default function App() {
     );
   };
 
+  // Checkout API Call (Reserves Stock)
   const handleCheckout = async () => {
-  if (cart.length === 0) return;
-  setLoading(true);
+    if (cart.length === 0) return;
+    setLoading(true);
 
-  try {
-    const payload = {
-      customer_id: 'guest_user',
-      total_amount: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
-      // IMPORTANT: Map frontend fields -> backend expected fields
-      items: cart.map((item) => ({
-        product_id: Number(item.id || item.product_id), // Ensure it's an integer
-        quantity: Number(item.quantity),
-        unit_price: Number(item.price || item.unit_price || 0),
-      })),
-    };
+    try {
+      const payload = {
+        customer_id: 'guest_user',
+        total_amount: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+        items: cart.map((item) => ({
+          product_id: Number(item.id || item.product_id),
+          quantity: Number(item.quantity),
+          unit_price: Number(item.price || item.unit_price || 0),
+        })),
+      };
 
-    console.log("Sending Checkout Payload:", payload); // Debug log
+      console.log('Sending Checkout Payload:', payload);
 
-    const res = await fetch('/api/orders/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      // Prepend API_BASE_URL to hit the FastAPI backend on Vercel
+      const res = await fetch(`${API_BASE_URL}/api/orders/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(
-        Array.isArray(data.detail)
-          ? data.detail.map((e) => `${e.loc.join('.')}: ${e.msg}`).join(', ')
-          : data.detail || 'Checkout failed'
-      );
+      if (!res.ok) {
+        throw new Error(
+          Array.isArray(data.detail)
+            ? data.detail.map((e) => `${e.loc.join('.')}: ${e.msg}`).join(', ')
+            : data.detail || 'Checkout failed'
+        );
+      }
+
+      // Order created and stock reserved successfully
+      setActiveOrder(data);
+      setCart([]);
+      setIsCartOpen(false);
+      setTimer(300); // Reset timer to 5 minutes
+      setMessage({ type: 'success', text: `Stock reserved for 5 minutes! Order ID: ${data.id.slice(0, 8)}...` });
+      fetchProducts();
+      fetchOrders();
+    } catch (err) {
+      console.error('Checkout Error:', err);
+      setMessage({ type: 'error', text: `Checkout Error: ${err.message}` });
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // Success state handling
-    setActiveOrder(data);
-    setCart([]);
-    setTimer(300); // 5-minute timer hold
-    fetchProducts();
-    fetchOrders();
-  } catch (err) {
-    console.error("Checkout Error:", err);
-    alert(`Checkout Error: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
+  // Payment Processing API Call
   const handleProcessPayment = async (outcome) => {
     if (!activeOrder) return;
     setLoading(true);
@@ -197,6 +208,7 @@ export default function App() {
     }
   };
 
+  // Auto-Expire Reservation on Timeout
   const handleAutoExpire = async () => {
     if (!activeOrder) return;
     try {
@@ -209,7 +221,7 @@ export default function App() {
           simulated_outcome: 'TIMEOUT',
         }),
       });
-      setMessage({ type: 'error', text: 'Stock reservation expired.' });
+      setMessage({ type: 'error', text: 'Stock reservation expired. Items returned to inventory.' });
       setActiveOrder(null);
       setShowPaymentModal(false);
       fetchProducts();
@@ -219,9 +231,12 @@ export default function App() {
     }
   };
 
+  // Cancel Order API Call
   const handleCancelOrder = async (orderId) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/cancel`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/cancel`, {
+        method: 'POST',
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Cancellation failed');
 
@@ -233,9 +248,12 @@ export default function App() {
     }
   };
 
+  // Refund Order API Call
   const handleRefundOrder = async (orderId) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/refund`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/refund`, {
+        method: 'POST',
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Refund failed');
 
@@ -247,6 +265,7 @@ export default function App() {
     }
   };
 
+  // Helper to format countdown timer as MM:SS
   const formatTimer = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
