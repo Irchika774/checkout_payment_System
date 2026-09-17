@@ -15,9 +15,19 @@ import OrderHistory from './components/OrderHistory';
 // BACKEND API
 // ==========================================
 
-const API_BASE_URL =
+// Remove any trailing "/" from the environment variable.
+// This prevents:
+// https://example.vercel.app//api/products/
+//
+// and guarantees:
+// https://example.vercel.app/api/products/
+
+const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ||
-  'https://checkout-payment-system-mh5f.vercel.app';
+  'https://checkout-payment-system-mh5f.vercel.app'
+).replace(/\/+$/, '');
+
+console.log('Backend API:', API_BASE_URL);
 
 export default function App() {
   const [products, setProducts] = useState([]);
@@ -72,16 +82,21 @@ export default function App() {
         params.append('in_stock', 'true');
       }
 
-      const url =
-        `${API_BASE_URL}/api/products/?${params.toString()}`;
+      const queryString = params.toString();
+
+      const url = queryString
+        ? `${API_BASE_URL}/api/products/?${queryString}`
+        : `${API_BASE_URL}/api/products/`;
 
       console.log('Fetching products from:', url);
 
       const res = await fetch(url);
 
       if (!res.ok) {
+        const errorText = await res.text();
+
         throw new Error(
-          `Products API error: ${res.status}`
+          `Products API error: ${res.status} ${errorText}`
         );
       }
 
@@ -89,12 +104,9 @@ export default function App() {
 
       console.log('Products received:', data);
 
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error(
-        'Failed to fetch products:',
-        err
-      );
+      console.error('Failed to fetch products:', err);
 
       setMessage({
         type: 'error',
@@ -113,16 +125,17 @@ export default function App() {
 
   const fetchOrders = async () => {
     try {
-      const url =
-        `${API_BASE_URL}/api/orders/`;
+      const url = `${API_BASE_URL}/api/orders/`;
 
       console.log('Fetching orders from:', url);
 
       const res = await fetch(url);
 
       if (!res.ok) {
+        const errorText = await res.text();
+
         throw new Error(
-          `Orders API error: ${res.status}`
+          `Orders API error: ${res.status} ${errorText}`
         );
       }
 
@@ -130,12 +143,9 @@ export default function App() {
 
       console.log('Orders received:', data);
 
-      setOrders(data);
+      setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error(
-        'Failed to fetch orders:',
-        err
-      );
+      console.error('Failed to fetch orders:', err);
     }
   };
 
@@ -177,14 +187,12 @@ export default function App() {
   const addToCart = (product) => {
     setCart((prev) => {
       const existing = prev.find(
-        (item) =>
-          item.product_id === product.id
+        (item) => item.product_id === product.id
       );
 
       if (existing) {
         if (
-          existing.quantity >=
-          product.available_stock
+          existing.quantity >= product.available_stock
         ) {
           return prev;
         }
@@ -193,8 +201,7 @@ export default function App() {
           item.product_id === product.id
             ? {
                 ...item,
-                quantity:
-                  item.quantity + 1,
+                quantity: item.quantity + 1,
               }
             : item
         );
@@ -232,8 +239,7 @@ export default function App() {
     if (newQuantity <= 0) {
       setCart((prev) =>
         prev.filter(
-          (item) =>
-            item.product_id !== productId
+          (item) => item.product_id !== productId
         )
       );
 
@@ -285,12 +291,8 @@ export default function App() {
         customer_id: 'guest_user',
 
         items: cart.map((item) => ({
-          product_id: Number(
-            item.product_id
-          ),
-          quantity: Number(
-            item.quantity
-          ),
+          product_id: Number(item.product_id),
+          quantity: Number(item.quantity),
         })),
       };
 
@@ -307,20 +309,29 @@ export default function App() {
         url
       );
 
-      // IMPORTANT:
-      // Use backend URL, not /api/orders/checkout
       const res = await fetch(url, {
         method: 'POST',
 
         headers: {
-          'Content-Type':
-            'application/json',
+          'Content-Type': 'application/json',
         },
 
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const contentType =
+        res.headers.get('content-type') || '';
+
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        data = {
+          detail: text,
+        };
+      }
 
       console.log(
         'Checkout Response:',
@@ -331,9 +342,10 @@ export default function App() {
         throw new Error(
           Array.isArray(data.detail)
             ? data.detail
-                .map(
-                  (e) =>
-                    `${e.loc.join('.')}: ${e.msg}`
+                .map((e) =>
+                  e.loc
+                    ? `${e.loc.join('.')}: ${e.msg}`
+                    : e.msg
                 )
                 .join(', ')
             : data.detail ||
@@ -410,23 +422,30 @@ export default function App() {
         method: 'POST',
 
         headers: {
-          'Content-Type':
-            'application/json',
+          'Content-Type': 'application/json',
         },
 
         body: JSON.stringify({
-          order_id:
-            activeOrder.id,
-
-          idempotency_key:
-            idempotencyKey,
-
-          simulated_outcome:
-            outcome,
+          order_id: activeOrder.id,
+          idempotency_key: idempotencyKey,
+          simulated_outcome: outcome,
         }),
       });
 
-      const data = await res.json();
+      const contentType =
+        res.headers.get('content-type') || '';
+
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+
+        data = {
+          detail: text,
+        };
+      }
 
       console.log(
         'Payment Response:',
@@ -492,23 +511,33 @@ export default function App() {
         method: 'POST',
 
         headers: {
-          'Content-Type':
-            'application/json',
+          'Content-Type': 'application/json',
         },
 
         body: JSON.stringify({
-          order_id:
-            activeOrder.id,
+          order_id: activeOrder.id,
 
           idempotency_key:
             `EXPIRE-${activeOrder.id}-${Date.now()}`,
 
-          simulated_outcome:
-            'TIMEOUT',
+          simulated_outcome: 'TIMEOUT',
         }),
       });
 
-      const data = await res.json();
+      const contentType =
+        res.headers.get('content-type') || '';
+
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+
+        data = {
+          detail: text,
+        };
+      }
 
       if (!res.ok) {
         throw new Error(
@@ -564,7 +593,20 @@ export default function App() {
         method: 'POST',
       });
 
-      const data = await res.json();
+      const contentType =
+        res.headers.get('content-type') || '';
+
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+
+        data = {
+          detail: text,
+        };
+      }
 
       if (!res.ok) {
         throw new Error(
@@ -611,7 +653,20 @@ export default function App() {
         method: 'POST',
       });
 
-      const data = await res.json();
+      const contentType =
+        res.headers.get('content-type') || '';
+
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+
+        data = {
+          detail: text,
+        };
+      }
 
       if (!res.ok) {
         throw new Error(
