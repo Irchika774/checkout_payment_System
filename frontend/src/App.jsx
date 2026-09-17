@@ -1,4 +1,6 @@
+
 import { useState, useEffect } from 'react';
+
 import Navbar from './components/Navbar';
 import NotificationBanner from './components/NotificationBanner';
 import ReservationBanner from './components/ReservationBanner';
@@ -9,8 +11,13 @@ import CartDrawer from './components/CartDrawer';
 import PaymentGatewayModal from './components/PaymentGatewayModal';
 import OrderHistory from './components/OrderHistory';
 
-// Retrieve backend API base URL from Vite environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+// ==========================================
+// BACKEND API
+// ==========================================
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://checkout-payment-system-mh5f.vercel.app';
 
 export default function App() {
   const [products, setProducts] = useState([]);
@@ -25,6 +32,7 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [orders, setOrders] = useState([]);
   const [activeOrder, setActiveOrder] = useState(null);
+
   const [timer, setTimer] = useState(300);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
@@ -32,70 +40,166 @@ export default function App() {
   const [message, setMessage] = useState(null);
   const [activeTab, setActiveTab] = useState('shop');
 
-  // Fetch products when search filters change
+  // ==========================================
+  // FETCH PRODUCTS
+  // ==========================================
+
   useEffect(() => {
     fetchProducts();
   }, [search, category, minPrice, maxPrice, inStockOnly]);
 
-  // Fetch orders on initial load
+  const fetchProducts = async () => {
+    try {
+      const params = new URLSearchParams();
+
+      if (search) {
+        params.append('search', search);
+      }
+
+      if (category !== 'All') {
+        params.append('category', category);
+      }
+
+      if (minPrice) {
+        params.append('min_price', minPrice);
+      }
+
+      if (maxPrice) {
+        params.append('max_price', maxPrice);
+      }
+
+      if (inStockOnly) {
+        params.append('in_stock', 'true');
+      }
+
+      const url =
+        `${API_BASE_URL}/api/products/?${params.toString()}`;
+
+      console.log('Fetching products from:', url);
+
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        throw new Error(
+          `Products API error: ${res.status}`
+        );
+      }
+
+      const data = await res.json();
+
+      console.log('Products received:', data);
+
+      setProducts(data);
+    } catch (err) {
+      console.error(
+        'Failed to fetch products:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text: 'Unable to load products. Please try again.',
+      });
+    }
+  };
+
+  // ==========================================
+  // FETCH ORDERS
+  // ==========================================
+
   useEffect(() => {
     fetchOrders();
   }, []);
 
-  // Stock reservation countdown timer (5 minutes = 300s)
+  const fetchOrders = async () => {
+    try {
+      const url =
+        `${API_BASE_URL}/api/orders/`;
+
+      console.log('Fetching orders from:', url);
+
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        throw new Error(
+          `Orders API error: ${res.status}`
+        );
+      }
+
+      const data = await res.json();
+
+      console.log('Orders received:', data);
+
+      setOrders(data);
+    } catch (err) {
+      console.error(
+        'Failed to fetch orders:',
+        err
+      );
+    }
+  };
+
+  // ==========================================
+  // RESERVATION TIMER
+  // ==========================================
+
   useEffect(() => {
     let interval = null;
-    if (activeOrder && activeOrder.status === 'RESERVED' && timer > 0) {
+
+    if (
+      activeOrder &&
+      activeOrder.status === 'RESERVED' &&
+      timer > 0
+    ) {
       interval = setInterval(() => {
         setTimer((prev) => {
           if (prev <= 1) {
             handleAutoExpire();
             return 0;
           }
+
           return prev - 1;
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [activeOrder, timer]);
 
-  // Fetch Products API Call
-  const fetchProducts = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (category !== 'All') params.append('category', category);
-      if (minPrice) params.append('min_price', minPrice);
-      if (maxPrice) params.append('max_price', maxPrice);
-      if (inStockOnly) params.append('in_stock', 'true');
+  // ==========================================
+  // ADD TO CART
+  // ==========================================
 
-      const res = await fetch(`${API_BASE_URL}/api/products/?${params.toString()}`);
-      if (res.ok) setProducts(await res.json());
-    } catch (err) {
-      console.error('Failed to fetch products:', err);
-    }
-  };
-
-  // Fetch Orders API Call
-  const fetchOrders = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/`);
-      if (res.ok) setOrders(await res.json());
-    } catch (err) {
-      console.error('Failed to fetch orders:', err);
-    }
-  };
-
-  // Cart Management Functions
   const addToCart = (product) => {
     setCart((prev) => {
-      const existing = prev.find((item) => item.product_id === product.id);
+      const existing = prev.find(
+        (item) =>
+          item.product_id === product.id
+      );
+
       if (existing) {
-        if (existing.quantity >= product.available_stock) return prev;
+        if (
+          existing.quantity >=
+          product.available_stock
+        ) {
+          return prev;
+        }
+
         return prev.map((item) =>
-          item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.product_id === product.id
+            ? {
+                ...item,
+                quantity:
+                  item.quantity + 1,
+              }
+            : item
         );
       }
+
       return [
         ...prev,
         {
@@ -106,193 +210,489 @@ export default function App() {
         },
       ];
     });
-    setMessage({ type: 'success', text: `Added ${product.name} to cart!` });
-    setTimeout(() => setMessage(null), 3000);
+
+    setMessage({
+      type: 'success',
+      text: `Added ${product.name} to cart!`,
+    });
+
+    setTimeout(() => {
+      setMessage(null);
+    }, 3000);
   };
 
-  const updateCartQuantity = (productId, newQuantity) => {
+  // ==========================================
+  // UPDATE CART QUANTITY
+  // ==========================================
+
+  const updateCartQuantity = (
+    productId,
+    newQuantity
+  ) => {
     if (newQuantity <= 0) {
-      setCart((prev) => prev.filter((item) => item.product_id !== productId));
+      setCart((prev) =>
+        prev.filter(
+          (item) =>
+            item.product_id !== productId
+        )
+      );
+
       return;
     }
-    const product = products.find((p) => p.id === productId);
-    if (product && newQuantity > product.available_stock) return;
+
+    const product = products.find(
+      (p) => p.id === productId
+    );
+
+    if (
+      product &&
+      newQuantity > product.available_stock
+    ) {
+      return;
+    }
 
     setCart((prev) =>
-      prev.map((item) => (item.product_id === productId ? { ...item, quantity: newQuantity } : item))
+      prev.map((item) =>
+        item.product_id === productId
+          ? {
+              ...item,
+              quantity: newQuantity,
+            }
+          : item
+      )
     );
   };
 
-  // Checkout API Call (Reserves Stock)
+  // ==========================================
+  // CHECKOUT
+  // ==========================================
+
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0) {
+      setMessage({
+        type: 'error',
+        text: 'Your cart is empty.',
+      });
+
+      return;
+    }
+
     setLoading(true);
+    setMessage(null);
 
     try {
       const payload = {
         customer_id: 'guest_user',
-        total_amount: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+
         items: cart.map((item) => ({
-          product_id: Number(item.id || item.product_id),
-          quantity: Number(item.quantity),
-          unit_price: Number(item.price || item.unit_price || 0),
+          product_id: Number(
+            item.product_id
+          ),
+          quantity: Number(
+            item.quantity
+          ),
         })),
       };
 
-      console.log('Sending Checkout Payload:', payload);
+      console.log(
+        'Sending Checkout Payload:',
+        payload
+      );
 
-      // Prepend API_BASE_URL to hit the FastAPI backend on Vercel
-      const res = await fetch(`${API_BASE_URL}/api/orders/checkout`, {
+      const url =
+        `${API_BASE_URL}/api/orders/checkout`;
+
+      console.log(
+        'Checkout URL:',
+        url
+      );
+
+      // IMPORTANT:
+      // Use backend URL, not /api/orders/checkout
+      const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
+
         body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      console.log(
+        'Checkout Response:',
+        data
+      );
+
+      if (!res.ok) {
+        throw new Error(
+          Array.isArray(data.detail)
+            ? data.detail
+                .map(
+                  (e) =>
+                    `${e.loc.join('.')}: ${e.msg}`
+                )
+                .join(', ')
+            : data.detail ||
+                'Checkout failed'
+        );
+      }
+
+      setActiveOrder(data);
+
+      setCart([]);
+
+      setTimer(300);
+
+      setIsCartOpen(false);
+
+      setMessage({
+        type: 'success',
+        text:
+          `Stock reserved! Order ID: ` +
+          `${data.id.slice(0, 8)}...`,
+      });
+
+      await fetchProducts();
+      await fetchOrders();
+    } catch (err) {
+      console.error(
+        'Checkout Error:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text:
+          err.message ||
+          'Checkout failed.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // PROCESS PAYMENT
+  // ==========================================
+
+  const handleProcessPayment = async (
+    outcome
+  ) => {
+    if (!activeOrder) {
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const idempotencyKey =
+        `PAY-${activeOrder.id}-${Date.now()}`;
+
+      const url =
+        `${API_BASE_URL}/api/payments/process`;
+
+      console.log(
+        'Payment URL:',
+        url
+      );
+
+      console.log(
+        'Payment outcome:',
+        outcome
+      );
+
+      const res = await fetch(url, {
+        method: 'POST',
+
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
+
+        body: JSON.stringify({
+          order_id:
+            activeOrder.id,
+
+          idempotency_key:
+            idempotencyKey,
+
+          simulated_outcome:
+            outcome,
+        }),
+      });
+
+      const data = await res.json();
+
+      console.log(
+        'Payment Response:',
+        data
+      );
+
+      if (!res.ok) {
+        throw new Error(
+          data.detail ||
+            'Payment failed'
+        );
+      }
+
+      setMessage({
+        type:
+          outcome === 'SUCCESS'
+            ? 'success'
+            : 'error',
+
+        text:
+          `Payment ${outcome}: ` +
+          `Order ${data.id.slice(0, 8)} ` +
+          `updated to ${data.status}.`,
+      });
+
+      setActiveOrder(null);
+
+      setShowPaymentModal(false);
+
+      await fetchProducts();
+      await fetchOrders();
+    } catch (err) {
+      console.error(
+        'Payment Error:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text:
+          err.message ||
+          'Payment failed.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // AUTOMATIC EXPIRATION
+  // ==========================================
+
+  const handleAutoExpire = async () => {
+    if (!activeOrder) {
+      return;
+    }
+
+    try {
+      const url =
+        `${API_BASE_URL}/api/payments/process`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
+
+        body: JSON.stringify({
+          order_id:
+            activeOrder.id,
+
+          idempotency_key:
+            `EXPIRE-${activeOrder.id}-${Date.now()}`,
+
+          simulated_outcome:
+            'TIMEOUT',
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         throw new Error(
-          Array.isArray(data.detail)
-            ? data.detail.map((e) => `${e.loc.join('.')}: ${e.msg}`).join(', ')
-            : data.detail || 'Checkout failed'
+          data.detail ||
+            'Auto-expiration failed'
         );
       }
 
-      // Order created and stock reserved successfully
-      setActiveOrder(data);
-      setCart([]);
-      setIsCartOpen(false);
-      setTimer(300); // Reset timer to 5 minutes
-      setMessage({ type: 'success', text: `Stock reserved for 5 minutes! Order ID: ${data.id.slice(0, 8)}...` });
-      fetchProducts();
-      fetchOrders();
-    } catch (err) {
-      console.error('Checkout Error:', err);
-      setMessage({ type: 'error', text: `Checkout Error: ${err.message}` });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Payment Processing API Call
-  const handleProcessPayment = async (outcome) => {
-    if (!activeOrder) return;
-    setLoading(true);
-    setMessage(null);
-    try {
-      const idempotencyKey = `PAY-${activeOrder.id}-${Date.now()}`;
-      const res = await fetch(`${API_BASE_URL}/api/payments/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: activeOrder.id,
-          idempotency_key: idempotencyKey,
-          simulated_outcome: outcome,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Payment failed');
+      console.log(
+        'Auto-expire response:',
+        data
+      );
 
       setMessage({
-        type: outcome === 'SUCCESS' ? 'success' : 'error',
-        text: `Payment ${outcome}: Order ${data.id.slice(0, 8)} updated to ${data.status}.`,
+        type: 'error',
+        text:
+          'Stock reservation expired.',
       });
+
       setActiveOrder(null);
+
       setShowPaymentModal(false);
-      fetchProducts();
-      fetchOrders();
+
+      await fetchProducts();
+      await fetchOrders();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
-    } finally {
-      setLoading(false);
+      console.error(
+        'Auto-expire failed:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text:
+          err.message ||
+          'Reservation expiration failed.',
+      });
     }
   };
 
-  // Auto-Expire Reservation on Timeout
-  const handleAutoExpire = async () => {
-    if (!activeOrder) return;
-    try {
-      await fetch(`${API_BASE_URL}/api/payments/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: activeOrder.id,
-          idempotency_key: `EXPIRE-${activeOrder.id}-${Date.now()}`,
-          simulated_outcome: 'TIMEOUT',
-        }),
-      });
-      setMessage({ type: 'error', text: 'Stock reservation expired. Items returned to inventory.' });
-      setActiveOrder(null);
-      setShowPaymentModal(false);
-      fetchProducts();
-      fetchOrders();
-    } catch (err) {
-      console.error('Auto-expire failed:', err);
-    }
-  };
+  // ==========================================
+  // CANCEL ORDER
+  // ==========================================
 
-  // Cancel Order API Call
-  const handleCancelOrder = async (orderId) => {
+  const handleCancelOrder = async (
+    orderId
+  ) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/cancel`, {
+      const url =
+        `${API_BASE_URL}/api/orders/${orderId}/cancel`;
+
+      const res = await fetch(url, {
         method: 'POST',
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Cancellation failed');
 
-      setMessage({ type: 'success', text: `Order ${orderId.slice(0, 8)} cancelled.` });
-      fetchProducts();
-      fetchOrders();
+      if (!res.ok) {
+        throw new Error(
+          data.detail ||
+            'Cancellation failed'
+        );
+      }
+
+      setMessage({
+        type: 'success',
+        text:
+          `Order ${orderId.slice(0, 8)} cancelled.`,
+      });
+
+      await fetchProducts();
+      await fetchOrders();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      console.error(
+        'Cancel Error:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text:
+          err.message ||
+          'Cancellation failed.',
+      });
     }
   };
 
-  // Refund Order API Call
-  const handleRefundOrder = async (orderId) => {
+  // ==========================================
+  // REFUND ORDER
+  // ==========================================
+
+  const handleRefundOrder = async (
+    orderId
+  ) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/refund`, {
+      const url =
+        `${API_BASE_URL}/api/orders/${orderId}/refund`;
+
+      const res = await fetch(url, {
         method: 'POST',
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Refund failed');
 
-      setMessage({ type: 'success', text: `Order ${orderId.slice(0, 8)} refunded.` });
-      fetchProducts();
-      fetchOrders();
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.detail ||
+            'Refund failed'
+        );
+      }
+
+      setMessage({
+        type: 'success',
+        text:
+          `Order ${orderId.slice(0, 8)} refunded.`,
+      });
+
+      await fetchProducts();
+      await fetchOrders();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      console.error(
+        'Refund Error:',
+        err
+      );
+
+      setMessage({
+        type: 'error',
+        text:
+          err.message ||
+          'Refund failed.',
+      });
     }
   };
 
-  // Helper to format countdown timer as MM:SS
+  // ==========================================
+  // FORMAT TIMER
+  // ==========================================
+
   const formatTimer = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
+    const m =
+      Math.floor(secs / 60);
+
+    const s =
+      secs % 60;
+
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  // ==========================================
+  // UI
+  // ==========================================
+
   return (
     <div className="min-h-screen bg-[#C6F0E4] text-[#171317] font-sans">
+
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        cartItemCount={cart.reduce((total, item) => total + item.quantity, 0)}
+        cartItemCount={cart.reduce(
+          (total, item) =>
+            total + item.quantity,
+          0
+        )}
         setIsCartOpen={setIsCartOpen}
       />
 
-      <NotificationBanner message={message} />
+      <NotificationBanner
+        message={message}
+      />
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+
         <ReservationBanner
           activeOrder={activeOrder}
           timer={timer}
           formatTimer={formatTimer}
-          onOpenPaymentModal={() => setShowPaymentModal(true)}
+          onOpenPaymentModal={() =>
+            setShowPaymentModal(true)
+          }
         />
 
         {activeTab === 'shop' ? (
           <div>
+
             <ProductSearchFilter
               search={search}
               setSearch={setSearch}
@@ -305,33 +705,52 @@ export default function App() {
               inStockOnly={inStockOnly}
               setInStockOnly={setInStockOnly}
             />
+
             <ProductCatalog
               products={products}
               onAddToCart={addToCart}
-              onSelectProduct={setSelectedProduct}
+              onSelectProduct={
+                setSelectedProduct
+              }
             />
+
           </div>
         ) : (
           <OrderHistory
             orders={orders}
-            onCancelOrder={handleCancelOrder}
-            onRefundOrder={handleRefundOrder}
+            onCancelOrder={
+              handleCancelOrder
+            }
+            onRefundOrder={
+              handleRefundOrder
+            }
           />
         )}
+
       </main>
 
       <CartDrawer
         isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
+        onClose={() =>
+          setIsCartOpen(false)
+        }
         cart={cart}
-        onUpdateQuantity={updateCartQuantity}
-        onCheckout={handleCheckout}
+        onUpdateQuantity={
+          updateCartQuantity
+        }
+        onCheckout={
+          handleCheckout
+        }
         loading={loading}
       />
 
       <ProductDetailModal
-        selectedProduct={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
+        selectedProduct={
+          selectedProduct
+        }
+        onClose={() =>
+          setSelectedProduct(null)
+        }
       />
 
       <PaymentGatewayModal
@@ -339,9 +758,13 @@ export default function App() {
         activeOrder={activeOrder}
         timer={timer}
         formatTimer={formatTimer}
-        onProcessPayment={handleProcessPayment}
+        onProcessPayment={
+          handleProcessPayment
+        }
         loading={loading}
       />
+
     </div>
   );
 }
+
